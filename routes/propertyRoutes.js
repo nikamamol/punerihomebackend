@@ -29,10 +29,14 @@ router.get('/public/featured', propertyController.getFeaturedProperties);
 // Get properties by owner (public view)
 router.get('/public/owner/:ownerId', propertyController.getPropertiesByOwnerPublic);
 
+// =============== PROTECTED ROUTES ===============
+// ✅ Get owner's properties (dashboard) - NEW ROUTE
+router.get('/owner/properties', auth.verifyToken, propertyController.getOwnerProperties);
+
 // ✅ PROTECTED GET ROUTES (Authentication required)
 router.use(auth.verifyToken);
 
-// Get owner's properties (dashboard)
+// Get owner's properties (dashboard) - Old route (you can keep or remove)
 router.get('/owner', propertyController.getOwnerProperties);
 
 // Get specific property by ID (owner's view)

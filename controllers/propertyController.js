@@ -9,9 +9,9 @@ class PropertyController {
     async createProperty(req, res) {
         try {
             console.log('=== CREATE PROPERTY START ===');
-            const ownerId = req.user?.userId || 1;
+            const ownerId = req.user?.id || 1;
             const data = req.body;
-            
+
             console.log('Owner ID:', ownerId);
             console.log('Form data received:', {
                 title: data.title,
@@ -25,7 +25,7 @@ class PropertyController {
             if (req.files?.images) {
                 console.log('Processing images...');
                 const uploadedFiles = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
-                
+
                 for (const file of uploadedFiles) {
                     try {
                         console.log('Uploading to Cloudinary:', file.originalname);
@@ -88,12 +88,12 @@ class PropertyController {
 
             console.log('Calling Property.create()...');
             console.log('Property data keys:', Object.keys(propertyData));
-            
+
             // ✅ यहाँ Property.create call हो रहा है
             const property = await Property.create(propertyData);
-            
+
             console.log('=== CREATE PROPERTY SUCCESS ===');
-            
+
             res.status(201).json({
                 success: true,
                 message: 'Property created successfully',
@@ -104,7 +104,7 @@ class PropertyController {
             console.error('=== CREATE PROPERTY ERROR ===');
             console.error('Error message:', error.message);
             console.error('Error stack:', error.stack);
-            
+
             res.status(500).json({
                 success: false,
                 message: 'Server error',
@@ -116,7 +116,7 @@ class PropertyController {
     async getAllProperties(req, res) {
         try {
             const { page = 1, limit = 12, sort = 'newest', type, city, minPrice, maxPrice } = req.query;
-            
+
             let query = `
                 SELECT p.*, 
                     u.name as owner_name,
@@ -125,30 +125,30 @@ class PropertyController {
                 LEFT JOIN users u ON p.owner_id = u.id
                 WHERE p.status = 'approved' AND p.is_active = 1
             `;
-            
+
             const values = [];
-            
+
             // Apply filters
             if (type) {
                 query += ' AND p.property_type = ?';
                 values.push(type);
             }
-            
+
             if (city) {
                 query += ' AND p.city = ?';
                 values.push(city);
             }
-            
+
             if (minPrice) {
                 query += ' AND p.price >= ?';
                 values.push(parseInt(minPrice));
             }
-            
+
             if (maxPrice) {
                 query += ' AND p.price <= ?';
                 values.push(parseInt(maxPrice));
             }
-            
+
             // Apply sorting
             const sortOptions = {
                 'newest': 'p.created_at DESC',
@@ -157,23 +157,23 @@ class PropertyController {
                 'price-high': 'p.price DESC',
                 'views': 'p.views DESC'
             };
-            
+
             query += ` ORDER BY ${sortOptions[sort] || 'p.created_at DESC'}`;
-            
+
             // Apply pagination
             const offset = (parseInt(page) - 1) * parseInt(limit);
             query += ' LIMIT ? OFFSET ?';
             values.push(parseInt(limit), offset);
-            
+
             const [properties] = await db.execute(query, values);
-            
+
             // Get total count for pagination
             let countQuery = 'SELECT COUNT(*) as total FROM properties WHERE status = ? AND is_active = ?';
             const countValues = ['approved', 1];
-            
+
             const [countResult] = await db.execute(countQuery, countValues);
             const total = countResult[0].total;
-            
+
             res.status(200).json({
                 success: true,
                 data: properties,
@@ -184,7 +184,7 @@ class PropertyController {
                     limit: parseInt(limit)
                 }
             });
-            
+
         } catch (error) {
             console.error('Get all properties error:', error);
             res.status(500).json({
@@ -193,12 +193,12 @@ class PropertyController {
             });
         }
     }
-    
+
     // 2. Get property by ID (Public)
     async getPropertyById(req, res) {
         try {
             const { id } = req.params;
-            
+
             // Get property details
             const [propertyRows] = await db.execute(
                 `SELECT p.*, u.name as owner_name, u.phone as owner_phone 
@@ -207,41 +207,41 @@ class PropertyController {
                  WHERE p.id = ? AND p.status = 'approved' AND p.is_active = 1`,
                 [id]
             );
-            
+
             if (propertyRows.length === 0) {
                 return res.status(404).json({
                     success: false,
                     message: 'Property not found'
                 });
             }
-            
+
             const property = propertyRows[0];
-            
+
             // Get amenities
             const [amenities] = await db.execute(
                 'SELECT amenity FROM property_amenities WHERE property_id = ?',
                 [id]
             );
             property.amenities = amenities.map(a => a.amenity);
-            
+
             // Get images
             const [images] = await db.execute(
                 'SELECT id, url, caption, is_primary FROM property_images WHERE property_id = ? ORDER BY is_primary DESC',
                 [id]
             );
             property.images = images;
-            
+
             // Increment view count
             await db.execute(
                 'UPDATE properties SET views = views + 1 WHERE id = ?',
                 [id]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: property
             });
-            
+
         } catch (error) {
             console.error('Get property by ID error:', error);
             res.status(500).json({
@@ -250,56 +250,56 @@ class PropertyController {
             });
         }
     }
-    
+
     // 3. Search properties
     async searchProperties(req, res) {
         try {
             const { q, city, type, minPrice, maxPrice } = req.query;
-            
+
             let query = `
                 SELECT p.*, 
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
                 FROM properties p
                 WHERE p.status = 'approved' AND p.is_active = 1
             `;
-            
+
             const values = [];
-            
+
             if (q) {
                 query += ' AND (p.title LIKE ? OR p.description LIKE ? OR p.locality LIKE ? OR p.address LIKE ?)';
                 const searchTerm = `%${q}%`;
                 values.push(searchTerm, searchTerm, searchTerm, searchTerm);
             }
-            
+
             if (city) {
                 query += ' AND p.city = ?';
                 values.push(city);
             }
-            
+
             if (type) {
                 query += ' AND p.property_type = ?';
                 values.push(type);
             }
-            
+
             if (minPrice) {
                 query += ' AND p.price >= ?';
                 values.push(parseInt(minPrice));
             }
-            
+
             if (maxPrice) {
                 query += ' AND p.price <= ?';
                 values.push(parseInt(maxPrice));
             }
-            
+
             query += ' ORDER BY p.created_at DESC LIMIT 20';
-            
+
             const [properties] = await db.execute(query, values);
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Search properties error:', error);
             res.status(500).json({
@@ -308,21 +308,21 @@ class PropertyController {
             });
         }
     }
-    
+
     // 4. Filter properties
     async filterProperties(req, res) {
         try {
             const filters = req.query;
-            
+
             let query = `
                 SELECT p.*,
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
                 FROM properties p
                 WHERE p.status = 'approved' AND p.is_active = 1
             `;
-            
+
             const values = [];
-            
+
             // Apply filters dynamically
             const filterConditions = {
                 city: 'p.city = ?',
@@ -336,23 +336,23 @@ class PropertyController {
                 minArea: 'p.built_up_area >= ?',
                 maxArea: 'p.built_up_area <= ?'
             };
-            
+
             Object.keys(filters).forEach(key => {
                 if (filterConditions[key] && filters[key]) {
                     query += ` AND ${filterConditions[key]}`;
                     values.push(filters[key]);
                 }
             });
-            
+
             query += ' ORDER BY p.created_at DESC LIMIT 50';
-            
+
             const [properties] = await db.execute(query, values);
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Filter properties error:', error);
             res.status(500).json({
@@ -361,13 +361,13 @@ class PropertyController {
             });
         }
     }
-    
+
     // 5. Get properties by city
     async getPropertiesByCity(req, res) {
         try {
             const { city } = req.params;
             const { limit = 10 } = req.query;
-            
+
             const [properties] = await db.execute(
                 `SELECT p.*, 
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
@@ -377,12 +377,12 @@ class PropertyController {
                 LIMIT ?`,
                 [city, parseInt(limit)]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Get properties by city error:', error);
             res.status(500).json({
@@ -391,13 +391,13 @@ class PropertyController {
             });
         }
     }
-    
+
     // 6. Get properties by type
     async getPropertiesByType(req, res) {
         try {
             const { type } = req.params;
             const { limit = 10 } = req.query;
-            
+
             const [properties] = await db.execute(
                 `SELECT p.*, 
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
@@ -407,12 +407,12 @@ class PropertyController {
                 LIMIT ?`,
                 [type, parseInt(limit)]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Get properties by type error:', error);
             res.status(500).json({
@@ -421,12 +421,12 @@ class PropertyController {
             });
         }
     }
-    
+
     // 7. Get featured properties
     async getFeaturedProperties(req, res) {
         try {
             const { limit = 6 } = req.query;
-            
+
             const [properties] = await db.execute(
                 `SELECT p.*, 
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
@@ -436,12 +436,12 @@ class PropertyController {
                 LIMIT ?`,
                 [parseInt(limit)]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Get featured properties error:', error);
             res.status(500).json({
@@ -450,13 +450,13 @@ class PropertyController {
             });
         }
     }
-    
+
     // 8. Get properties by owner (public view)
     async getPropertiesByOwnerPublic(req, res) {
         try {
             const { ownerId } = req.params;
             const { limit = 10 } = req.query;
-            
+
             const [properties] = await db.execute(
                 `SELECT p.*, 
                     (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
@@ -466,12 +466,12 @@ class PropertyController {
                 LIMIT ?`,
                 [ownerId, parseInt(limit)]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: properties
             });
-            
+
         } catch (error) {
             console.error('Get properties by owner error:', error);
             res.status(500).json({
@@ -480,34 +480,147 @@ class PropertyController {
             });
         }
     }
-    
+
     // =============== PROTECTED GET METHODS ===============
-    
+
     // 9. Get owner's properties (already exists in your code)
+    // Get owner's properties for dashboard
+    // In propertyController.js - Use this simpler version
+
+    // In propertyController.js - Use this simpler version
+
     async getOwnerProperties(req, res) {
         try {
-            const ownerId = req.user.userId;
-            const filters = req.query;
-            
-            // Your existing code...
-            
+            const ownerId = req.user?.userId || req.user?.id;
+            console.log(`Fetching properties for owner ID: ${ownerId}`);
+
+            if (!ownerId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Authentication required. Please login first.'
+                });
+            }
+
+            // Extract query parameters
+            const {
+                status,
+                property_type,
+                property_for,
+                search,
+                sortBy = 'newest',
+                page = 1,
+                limit = 10
+            } = req.query;
+
+            let query = `
+            SELECT p.*, 
+                COUNT(DISTINCT pi.id) as image_count,
+                COUNT(DISTINCT iq.id) as inquiry_count
+            FROM properties p
+            LEFT JOIN property_images pi ON p.id = pi.property_id
+            LEFT JOIN inquiries iq ON p.id = iq.property_id
+            WHERE p.owner_id = ?
+        `;
+
+            const values = [ownerId];
+
+            // Apply filters
+            if (status && status !== 'null') {
+                query += ' AND p.status = ?';
+                values.push(status);
+            }
+
+            if (property_type && property_type !== 'null') {
+                query += ' AND p.property_type = ?';
+                values.push(property_type);
+            }
+
+            if (property_for && property_for !== 'null') {
+                query += ' AND p.property_for = ?';
+                values.push(property_for);
+            }
+
+            if (search && search !== 'null') {
+                query += ' AND (p.title LIKE ? OR p.description LIKE ? OR p.address LIKE ? OR p.city LIKE ?)';
+                const searchTerm = `%${search}%`;
+                values.push(searchTerm, searchTerm, searchTerm, searchTerm);
+            }
+
+            // Group by property ID
+            query += ' GROUP BY p.id';
+
+            // Apply sorting
+            const sortOptions = {
+                'newest': 'p.created_at DESC',
+                'oldest': 'p.created_at ASC',
+                'price-low': 'p.price ASC',
+                'price-high': 'p.price DESC',
+                'views': 'p.views DESC'
+            };
+
+            query += ` ORDER BY ${sortOptions[sortBy] || 'p.created_at DESC'}`;
+
+            // Get total count for pagination
+            let countQuery = query.replace('SELECT p.*, COUNT(DISTINCT pi.id) as image_count, COUNT(DISTINCT iq.id) as inquiry_count', 'SELECT COUNT(*) as total');
+            const countQueryParts = countQuery.split('GROUP BY p.id');
+            countQuery = countQueryParts[0];
+
+            const [countResult] = await db.execute(countQuery, values);
+            const total = countResult[0]?.total || 0;
+
+            // Apply pagination
+            const offset = (parseInt(page) - 1) * parseInt(limit);
+            query += ' LIMIT ? OFFSET ?';
+            values.push(parseInt(limit), offset);
+
+            // Execute main query
+            const [properties] = await db.execute(query, values);
+
+            // Get primary images for each property
+            for (const property of properties) {
+                const [images] = await db.execute(
+                    'SELECT url FROM property_images WHERE property_id = ? AND is_primary = 1 LIMIT 1',
+                    [property.id]
+                );
+                property.primary_image = images[0]?.url || null;
+            }
+
+            res.status(200).json({
+                success: true,
+                data: properties,
+                pagination: {
+                    total,
+                    page: parseInt(page),
+                    pages: Math.ceil(total / parseInt(limit)),
+                    limit: parseInt(limit)
+                },
+                filters: {
+                    status,
+                    property_type,
+                    property_for,
+                    search,
+                    sortBy
+                }
+            });
+
         } catch (error) {
             console.error('Get owner properties error:', error);
             res.status(500).json({
                 success: false,
-                message: 'Server error'
+                message: 'Server error while fetching properties',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
-    
+
     // 10. Get property by ID (owner's view - already exists)
     async getProperty(req, res) {
         try {
             const { id } = req.params;
             const ownerId = req.user.userId;
-            
+
             // Your existing code...
-            
+
         } catch (error) {
             console.error('Get property error:', error);
             res.status(500).json({
@@ -516,14 +629,14 @@ class PropertyController {
             });
         }
     }
-    
+
     // 11. Get property statistics (already exists)
     async getPropertyStats(req, res) {
         try {
             const ownerId = req.user.userId;
-            
+
             // Your existing code...
-            
+
         } catch (error) {
             console.error('Get stats error:', error);
             res.status(500).json({
@@ -532,12 +645,12 @@ class PropertyController {
             });
         }
     }
-    
+
     // 12. Get analytics overview
     async getAnalyticsOverview(req, res) {
         try {
             const ownerId = req.user.userId;
-            
+
             const [overview] = await db.execute(
                 `SELECT 
                     COUNT(*) as total_properties,
@@ -550,12 +663,12 @@ class PropertyController {
                 WHERE owner_id = ? AND is_active = 1`,
                 [ownerId]
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: overview[0] || {}
             });
-            
+
         } catch (error) {
             console.error('Get analytics error:', error);
             res.status(500).json({
@@ -564,44 +677,44 @@ class PropertyController {
             });
         }
     }
-    
+
     // =============== ADMIN GET METHODS ===============
-    
+
     // 13. Get all properties (admin view)
     async getAllPropertiesAdmin(req, res) {
         try {
             const { status, page = 1, limit = 20 } = req.query;
             const offset = (page - 1) * limit;
-            
+
             let query = `
                 SELECT p.*, u.name as owner_name, u.email as owner_email
                 FROM properties p
                 LEFT JOIN users u ON p.owner_id = u.id
                 WHERE p.is_active = 1
             `;
-            
+
             const values = [];
-            
+
             if (status) {
                 query += ' AND p.status = ?';
                 values.push(status);
             }
-            
+
             query += ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
             values.push(parseInt(limit), offset);
-            
+
             const [properties] = await db.execute(query, values);
-            
+
             // Get total count
             let countQuery = 'SELECT COUNT(*) as total FROM properties WHERE is_active = 1';
             if (status) {
                 countQuery += ' AND status = ?';
             }
-            
-            const [countResult] = await status ? 
-                await db.execute(countQuery, [status]) : 
+
+            const [countResult] = await status ?
+                await db.execute(countQuery, [status]) :
                 await db.execute(countQuery);
-            
+
             res.status(200).json({
                 success: true,
                 data: properties,
@@ -612,7 +725,7 @@ class PropertyController {
                     limit: parseInt(limit)
                 }
             });
-            
+
         } catch (error) {
             console.error('Get all properties admin error:', error);
             res.status(500).json({
@@ -621,7 +734,7 @@ class PropertyController {
             });
         }
     }
-    
+
     // 14. Get admin statistics
     async getAdminStats(req, res) {
         try {
@@ -638,42 +751,14 @@ class PropertyController {
                 FROM properties 
                 WHERE is_active = 1`
             );
-            
+
             res.status(200).json({
                 success: true,
                 data: stats[0] || {}
             });
-            
+
         } catch (error) {
             console.error('Get admin stats error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Server error'
-            });
-        }
-    }
-    // Get owner properties
-    async getOwnerProperties(req, res) {
-        try {
-            const ownerId = req.user.userId;
-            const filters = {
-                status: req.query.status,
-                property_type: req.query.propertyType,
-                search: req.query.search,
-                sortBy: req.query.sortBy || 'newest',
-                page: req.query.page || 1,
-                limit: req.query.limit || 10
-            };
-
-            const result = await Property.findByOwner(ownerId, filters);
-
-            res.status(200).json({
-                success: true,
-                data: result
-            });
-
-        } catch (error) {
-            console.error('Get properties error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Server error'
