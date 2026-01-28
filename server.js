@@ -36,6 +36,8 @@ const PORT = process.env.PORT || 5000;
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const propertyRoutes = require('./routes/propertyRoutes');
+const tenantRoutes = require('./routes/propertyRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 // Middleware
 app.use(cors({
@@ -52,7 +54,7 @@ app.use(cookieParser());
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.url}`);
-  
+
   // Log file upload info
   if (req.files) {
     console.log(`📎 Files uploaded: ${Object.keys(req.files).length} fields`);
@@ -61,13 +63,15 @@ app.use((req, res, next) => {
       console.log(`   - ${field}: ${files.length} file(s)`);
     });
   }
-  
+
   next();
 });
 
 // ============ ROUTES ============
 // Property routes (with file upload)
 app.use('/api/properties', propertyRoutes);
+app.use('/api/tenant', tenantRoutes);
+app.use('/api/payments', paymentRoutes); 
 
 // Static files (if you still need local uploads for something)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -77,10 +81,10 @@ app.get('/api/cloudinary/test', async (req, res) => {
   try {
     // Test Cloudinary connection
     const pingResult = await cloudinary.api.ping();
-    
+
     // Try to get account info
     const accountInfo = await cloudinary.api.account();
-    
+
     res.status(200).json({
       status: 'success',
       message: 'Cloudinary is working!',

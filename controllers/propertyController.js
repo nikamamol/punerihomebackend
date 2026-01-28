@@ -1099,6 +1099,575 @@ class PropertyController {
             });
         }
     }
+
+    // PropertyController.js में ये नए methods add करें
+
+    // =============== LIKE/SAVE FUNCTIONALITY ===============
+
+    // Check property like/save status
+    async checkPropertyStatus(req, res) {
+        try {
+            const { id: propertyId } = req.params;
+            const userId = req.user.id;
+
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Authentication required'
+                });
+            }
+
+            // Check if property exists
+            const [property] = await db.execute(
+                'SELECT id FROM properties WHERE id = ? AND status = ? AND is_active = ?',
+                [propertyId, 'approved', 1]
+            );
+
+            if (property.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Property not found'
+                });
+            }
+
+            // Check like status
+            const [likedResult] = await db.execute(
+                'SELECT id FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            // Check save status
+            const [savedResult] = await db.execute(
+                'SELECT id FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    liked: likedResult.length > 0,
+                    saved: savedResult.length > 0,
+                    propertyId: parseInt(propertyId)
+                }
+            });
+
+        } catch (error) {
+            console.error('Check property status error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Like a property (Tenant only)
+    async likeProperty(req, res) {
+        try {
+            const { id: propertyId } = req.params;
+            const userId = req.user.id;
+
+            // Check if user is tenant
+            if (req.user.userType !== 'tenant') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only tenants can like properties'
+                });
+            }
+
+            // Check if property exists
+            const [property] = await db.execute(
+                'SELECT id, likes FROM properties WHERE id = ? AND status = ? AND is_active = ?',
+                [propertyId, 'approved', 1]
+            );
+
+            if (property.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Property not found'
+                });
+            }
+
+            // Check if already liked
+            const [existingLike] = await db.execute(
+                'SELECT id FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            if (existingLike.length > 0) {
+                // Already liked - unlike it
+                await db.execute(
+                    'DELETE FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                    [userId, propertyId]
+                );
+
+                // Decrease likes count
+                await db.execute(
+                    'UPDATE properties SET likes = GREATEST(0, likes - 1) WHERE id = ?',
+                    [propertyId]
+                );
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Property unliked successfully',
+                    liked: false,
+                    likes: property[0].likes - 1
+                });
+            }
+
+            // Add like
+            await db.execute(
+                'INSERT INTO liked_properties (user_id, property_id) VALUES (?, ?)',
+                [userId, propertyId]
+            );
+
+            // Increase likes count
+            const newLikes = (property[0].likes || 0) + 1;
+            await db.execute(
+                'UPDATE properties SET likes = ? WHERE id = ?',
+                [newLikes, propertyId]
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Property liked successfully',
+                liked: true,
+                likes: newLikes
+            });
+
+        } catch (error) {
+            console.error('Like property error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Unlike a property (Tenant only)
+    async unlikeProperty(req, res) {
+        try {
+            const { id: propertyId } = req.params;
+            const userId = req.user.id;
+
+            // Check if user is tenant
+            if (req.user.userType !== 'tenant') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only tenants can unlike properties'
+                });
+            }
+
+            // Check if like exists
+            const [like] = await db.execute(
+                'SELECT id FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            if (like.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Like not found'
+                });
+            }
+
+            // Get current likes count
+            const [property] = await db.execute(
+                'SELECT likes FROM properties WHERE id = ?',
+                [propertyId]
+            );
+
+            // Remove like
+            await db.execute(
+                'DELETE FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            // Decrease likes count
+            const newLikes = Math.max(0, (property[0]?.likes || 0) - 1);
+            await db.execute(
+                'UPDATE properties SET likes = ? WHERE id = ?',
+                [newLikes, propertyId]
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Property unliked successfully',
+                likes: newLikes
+            });
+
+        } catch (error) {
+            console.error('Unlike property error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Save a property (Any authenticated user)
+    async saveProperty(req, res) {
+        try {
+            const { id: propertyId } = req.params;
+            const userId = req.user.id;
+
+            // Check if property exists
+            const [property] = await db.execute(
+                'SELECT id, saves FROM properties WHERE id = ? AND status = ? AND is_active = ?',
+                [propertyId, 'approved', 1]
+            );
+
+            if (property.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Property not found'
+                });
+            }
+
+            // Check if already saved
+            const [existingSave] = await db.execute(
+                'SELECT id FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            if (existingSave.length > 0) {
+                // Already saved - unsave it
+                await db.execute(
+                    'DELETE FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                    [userId, propertyId]
+                );
+
+                // Decrease saves count
+                await db.execute(
+                    'UPDATE properties SET saves = GREATEST(0, saves - 1) WHERE id = ?',
+                    [propertyId]
+                );
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Property unsaved successfully',
+                    saved: false,
+                    saves: property[0].saves - 1
+                });
+            }
+
+            // Add save
+            await db.execute(
+                'INSERT INTO saved_properties (user_id, property_id) VALUES (?, ?)',
+                [userId, propertyId]
+            );
+
+            // Increase saves count
+            const newSaves = (property[0].saves || 0) + 1;
+            await db.execute(
+                'UPDATE properties SET saves = ? WHERE id = ?',
+                [newSaves, propertyId]
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Property saved successfully',
+                saved: true,
+                saves: newSaves
+            });
+
+        } catch (error) {
+            console.error('Save property error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Unsave a property (Any authenticated user)
+    async unsaveProperty(req, res) {
+        try {
+            const { id: propertyId } = req.params;
+            const userId = req.user.id;
+
+            // Check if save exists
+            const [save] = await db.execute(
+                'SELECT id FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            if (save.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Save not found'
+                });
+            }
+
+            // Get current saves count
+            const [property] = await db.execute(
+                'SELECT saves FROM properties WHERE id = ?',
+                [propertyId]
+            );
+
+            // Remove save
+            await db.execute(
+                'DELETE FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                [userId, propertyId]
+            );
+
+            // Decrease saves count
+            const newSaves = Math.max(0, (property[0]?.saves || 0) - 1);
+            await db.execute(
+                'UPDATE properties SET saves = ? WHERE id = ?',
+                [newSaves, propertyId]
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Property unsaved successfully',
+                saves: newSaves
+            });
+
+        } catch (error) {
+            console.error('Unsave property error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Get user's liked properties (Tenant only)
+    async getLikedProperties(req, res) {
+        try {
+            const userId = req.user.id;
+            const { page = 1, limit = 10 } = req.query;
+
+            // Check if user is tenant
+            if (req.user.userType !== 'tenant') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only tenants can view liked properties'
+                });
+            }
+
+            const offset = (parseInt(page) - 1) * parseInt(limit);
+
+            // Get liked properties with pagination
+            const [likedProperties] = await db.execute(`
+            SELECT 
+                p.*,
+                lp.created_at as liked_at,
+                u.name as owner_name,
+                u.phone as owner_phone,
+                (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
+            FROM liked_properties lp
+            INNER JOIN properties p ON lp.property_id = p.id
+            LEFT JOIN users u ON p.owner_id = u.id
+            WHERE lp.user_id = ? AND p.status = 'approved' AND p.is_active = 1
+            ORDER BY lp.created_at DESC
+            LIMIT ? OFFSET ?
+        `, [userId, parseInt(limit), offset]);
+
+            // Get total count
+            const [countResult] = await db.execute(`
+            SELECT COUNT(*) as total 
+            FROM liked_properties lp
+            INNER JOIN properties p ON lp.property_id = p.id
+            WHERE lp.user_id = ? AND p.status = 'approved' AND p.is_active = 1
+        `, [userId]);
+
+            const total = countResult[0]?.total || 0;
+
+            res.status(200).json({
+                success: true,
+                data: likedProperties,
+                pagination: {
+                    total: parseInt(total),
+                    page: parseInt(page),
+                    pages: Math.ceil(total / parseInt(limit)),
+                    limit: parseInt(limit)
+                }
+            });
+
+        } catch (error) {
+            console.error('Get liked properties error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Get user's saved properties (All users)
+    async getSavedProperties(req, res) {
+        try {
+            const userId = req.user.id;
+            const { page = 1, limit = 10 } = req.query;
+
+            const offset = (parseInt(page) - 1) * parseInt(limit);
+
+            // Get saved properties with pagination
+            const [savedProperties] = await db.execute(`
+            SELECT 
+                p.*,
+                sp.created_at as saved_at,
+                u.name as owner_name,
+                u.phone as owner_phone,
+                (SELECT url FROM property_images WHERE property_id = p.id AND is_primary = 1 LIMIT 1) as image_url
+            FROM saved_properties sp
+            INNER JOIN properties p ON sp.property_id = p.id
+            LEFT JOIN users u ON p.owner_id = u.id
+            WHERE sp.user_id = ? AND p.status = 'approved' AND p.is_active = 1
+            ORDER BY sp.created_at DESC
+            LIMIT ? OFFSET ?
+        `, [userId, parseInt(limit), offset]);
+
+            // Get total count
+            const [countResult] = await db.execute(`
+            SELECT COUNT(*) as total 
+            FROM saved_properties sp
+            INNER JOIN properties p ON sp.property_id = p.id
+            WHERE sp.user_id = ? AND p.status = 'approved' AND p.is_active = 1
+        `, [userId]);
+
+            const total = countResult[0]?.total || 0;
+
+            res.status(200).json({
+                success: true,
+                data: savedProperties,
+                pagination: {
+                    total: parseInt(total),
+                    page: parseInt(page),
+                    pages: Math.ceil(total / parseInt(limit)),
+                    limit: parseInt(limit)
+                }
+            });
+
+        } catch (error) {
+            console.error('Get saved properties error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Update getPropertyById to include user status
+    async getPropertyById(req, res) {
+        try {
+            const { id } = req.params;
+            const userId = req.user?.id;
+
+            // Get property details
+            const [propertyRows] = await db.execute(`
+            SELECT 
+                p.*, 
+                u.name as owner_name, 
+                u.phone as owner_phone,
+                u.email as owner_email,
+                (SELECT COUNT(*) FROM liked_properties WHERE property_id = p.id) as total_likes,
+                (SELECT COUNT(*) FROM saved_properties WHERE property_id = p.id) as total_saves
+            FROM properties p
+            LEFT JOIN users u ON p.owner_id = u.id
+            WHERE p.id = ? AND p.status = 'approved' AND p.is_active = 1`,
+                [id]
+            );
+
+            if (propertyRows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Property not found'
+                });
+            }
+
+            const property = propertyRows[0];
+
+            // Check if current user has liked/saved this property
+            let userStatus = {
+                liked: false,
+                saved: false
+            };
+
+            if (userId) {
+                const [likeStatus] = await db.execute(
+                    'SELECT id FROM liked_properties WHERE user_id = ? AND property_id = ?',
+                    [userId, id]
+                );
+                userStatus.liked = likeStatus.length > 0;
+
+                const [saveStatus] = await db.execute(
+                    'SELECT id FROM saved_properties WHERE user_id = ? AND property_id = ?',
+                    [userId, id]
+                );
+                userStatus.saved = saveStatus.length > 0;
+            }
+
+            // Add user status to response
+            property.user_status = userStatus;
+
+            // Get amenities
+            const [amenities] = await db.execute(
+                'SELECT amenity FROM property_amenities WHERE property_id = ?',
+                [id]
+            );
+            property.amenities = amenities.map(a => a.amenity);
+
+            // Get images
+            const [images] = await db.execute(
+                'SELECT id, url, caption, is_primary FROM property_images WHERE property_id = ? ORDER BY is_primary DESC',
+                [id]
+            );
+            property.images = images;
+
+            // Increment view count
+            await db.execute(
+                'UPDATE properties SET views = views + 1 WHERE id = ?',
+                [id]
+            );
+
+            res.status(200).json({
+                success: true,
+                data: property
+            });
+
+        } catch (error) {
+            console.error('Get property by ID error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
+    // Get property counts for user
+    async getUserPropertyCounts(req, res) {
+        try {
+            const userId = req.user.id;
+
+            // Get counts
+            const [likedCount] = await db.execute(
+                'SELECT COUNT(*) as count FROM liked_properties WHERE user_id = ?',
+                [userId]
+            );
+
+            const [savedCount] = await db.execute(
+                'SELECT COUNT(*) as count FROM saved_properties WHERE user_id = ?',
+                [userId]
+            );
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    liked: likedCount[0].count,
+                    saved: savedCount[0].count
+                }
+            });
+
+        } catch (error) {
+            console.error('Get user property counts error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error'
+            });
+        }
+    }
+
 }
 
 module.exports = new PropertyController();

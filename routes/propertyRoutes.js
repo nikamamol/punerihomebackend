@@ -4,7 +4,7 @@ const propertyController = require('../controllers/propertyController');
 const auth = require('../middleware/authMiddleware');
 const upload = require('../middleware/upload');
 
-// ✅ PUBLIC GET ROUTES (No authentication required)
+// =============== PUBLIC ROUTES (No authentication required) ===============
 // Get all approved properties
 router.get('/public', propertyController.getAllProperties);
 
@@ -29,32 +29,84 @@ router.get('/public/featured', propertyController.getFeaturedProperties);
 // Get properties by owner (public view)
 router.get('/public/owner/:ownerId', propertyController.getPropertiesByOwnerPublic);
 
-// =============== PROTECTED ROUTES ===============
-// ✅ Get owner's properties (dashboard) - NEW ROUTE
-router.get('/owner/properties', auth.verifyToken, propertyController.getOwnerProperties);
+// =============== PROTECTED ROUTES (Authentication required) ===============
 
-// ✅ PROTECTED GET ROUTES (Authentication required)
-router.use(auth.verifyToken);
+// ✅ Like/Save Routes - For all authenticated users
+router.get('/:id/status', auth.verifyToken, propertyController.checkPropertyStatus);
+router.post('/:id/save', auth.verifyToken, propertyController.saveProperty);
+router.delete('/:id/unsave', auth.verifyToken, propertyController.unsaveProperty);
+router.get('/user/saved', auth.verifyToken, propertyController.getSavedProperties);
+router.get('/user/counts', auth.verifyToken, propertyController.getUserPropertyCounts);
 
-// Get owner's properties (dashboard) - Old route (you can keep or remove)
-router.get('/owner', propertyController.getOwnerProperties);
+// ✅ Tenant Only Routes (Like functionality)
+router.post('/:id/like',
+    auth.verifyToken,
+    auth.isTenantOrAdmin,
+    propertyController.likeProperty
+);
+
+router.delete('/:id/unlike',
+    auth.verifyToken,
+    auth.isTenantOrAdmin,
+    propertyController.unlikeProperty
+);
+
+router.get('/user/liked',
+    auth.verifyToken,
+    auth.isTenantOrAdmin,
+    propertyController.getLikedProperties
+);
+
+// =============== OWNER DASHBOARD ROUTES ===============
+// Get owner's properties (dashboard)
+router.get('/owner/properties', auth.verifyToken, auth.isOwnerOrAdmin, propertyController.getOwnerProperties);
 
 // Get specific property by ID (owner's view)
-router.get('/owner/:id', propertyController.getProperty);
+router.get('/owner/:id', auth.verifyToken, auth.isOwnerOrAdmin, propertyController.getProperty);
 
-// Get property statistics
-router.get('/stats', propertyController.getPropertyStats);
+// Get property statistics for owner
+router.get('/owner/stats', auth.verifyToken, auth.isOwnerOrAdmin, propertyController.getPropertyStats);
 
-// Get property analytics
-router.get('/analytics/overview', propertyController.getAnalyticsOverview);
+// Get property analytics overview
+router.get('/owner/analytics/overview', auth.verifyToken, auth.isOwnerOrAdmin, propertyController.getAnalyticsOverview);
 
-// ✅ ADMIN GET ROUTES
-router.get('/admin/all', auth.isAdmin, propertyController.getAllPropertiesAdmin);
-router.get('/admin/stats', auth.isAdmin, propertyController.getAdminStats);
+// Create, Update, Delete property
+router.post('/',
+    auth.verifyToken,
+    auth.isOwnerOrAdmin,
+    upload.propertyUpload,
+    propertyController.createProperty
+);
 
-// POST, PUT, DELETE routes (as per your requirement)
-router.post('/', upload.propertyUpload, propertyController.createProperty);
-router.put('/:id', upload.propertyUpload, propertyController.updateProperty);
-router.delete('/:id', propertyController.deleteProperty);
+router.put('/:id',
+    auth.verifyToken,
+    auth.isOwnerOrAdmin,
+    upload.propertyUpload,
+    propertyController.updateProperty
+);
+
+router.delete('/:id',
+    auth.verifyToken,
+    auth.isOwnerOrAdmin,
+    propertyController.deleteProperty
+);
+
+// Image upload routes for owner
+router.post('/:id/upload-image',
+    auth.verifyToken,
+    auth.isOwnerOrAdmin,
+    upload.single('image'), // Adjust based on your upload middleware
+    propertyController.uploadImage
+);
+
+router.delete('/:id/image/:imageId',
+    auth.verifyToken,
+    auth.isOwnerOrAdmin,
+    propertyController.deleteImage
+);
+
+// =============== ADMIN ONLY ROUTES ===============
+router.get('/admin/all', auth.verifyToken, auth.isAdmin, propertyController.getAllPropertiesAdmin);
+router.get('/admin/stats', auth.verifyToken, auth.isAdmin, propertyController.getAdminStats);
 
 module.exports = router;
