@@ -34,10 +34,10 @@ class PaymentController {
             // If Razorpay credentials are not set, return demo mode
             if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
                 console.log('Using demo mode for payment');
-                
+
                 // Create demo order
                 const demoOrderId = `demo_ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                
+
                 // Save payment record in database
                 await db.execute(
                     `INSERT INTO payments 
@@ -154,131 +154,9 @@ class PaymentController {
         }
     }
 
-    // 2. Verify Payment
-    async verifyPayment(req, res) {
-        try {
-            const userId = req.user.id;
-            const { order_id, payment_id, signature, planType, credits } = req.body;
-
-            console.log('Verifying payment for user:', userId, req.body);
-
-            // Find the payment record
-            const [payments] = await db.execute(
-                'SELECT * FROM payments WHERE razorpay_order_id = ? AND user_id = ?',
-                [order_id, userId]
-            );
-
-            if (payments.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Payment record not found'
-                });
-            }
-
-            const payment = payments[0];
-
-            // For demo mode, skip signature verification
-            if (payment.payment_id.startsWith('demo_')) {
-                // Update payment status to completed for demo
-                await db.execute(
-                    `UPDATE payments SET 
-                     status = 'completed',
-                     razorpay_payment_id = ?,
-                     razorpay_signature = ?,
-                     updated_at = NOW()
-                     WHERE id = ?`,
-                    [payment_id || 'demo_payment_id', signature || 'demo_signature', payment.id]
-                );
-
-                // Add credits to user
-                await this.addCreditsToUser(userId, payment.credits, payment.validity_days, payment.id);
-
-                return res.status(200).json({
-                    success: true,
-                    message: 'Demo payment verified successfully',
-                    data: {
-                        paymentId: payment_id || 'demo_payment_id',
-                        credits: payment.credits,
-                        amount: payment.amount,
-                        expiresAt: payment.expires_at
-                    }
-                });
-            }
-
-            // Verify signature for real payments
-            const body = order_id + "|" + payment_id;
-            const expectedSignature = crypto
-                .createHmac('sha256', RAZORPAY_KEY_SECRET)
-                .update(body.toString())
-                .digest('hex');
-
-            const isSignatureValid = expectedSignature === signature;
-
-            console.log('Signature verification:', {
-                expected: expectedSignature.substring(0, 20) + '...',
-                received: signature.substring(0, 20) + '...',
-                isValid: isSignatureValid
-            });
-
-            if (!isSignatureValid) {
-                // Update payment status to failed
-                await db.execute(
-                    `UPDATE payments SET 
-                     status = 'failed',
-                     razorpay_payment_id = ?,
-                     razorpay_signature = ?,
-                     updated_at = NOW()
-                     WHERE id = ?`,
-                    [payment_id, signature, payment.id]
-                );
-
-                return res.status(400).json({
-                    success: false,
-                    message: 'Payment verification failed - Invalid signature'
-                });
-            }
-
-            // Update payment status to completed
-            await db.execute(
-                `UPDATE payments SET 
-                 status = 'completed',
-                 razorpay_payment_id = ?,
-                 razorpay_signature = ?,
-                 updated_at = NOW()
-                 WHERE id = ?`,
-                [payment_id, signature, payment.id]
-            );
-
-            // Add credits to user
-            await this.addCreditsToUser(userId, payment.credits, payment.validity_days, payment.id);
-
-            console.log('Payment verified successfully for user:', userId);
-
-            res.status(200).json({
-                success: true,
-                message: 'Payment verified successfully',
-                data: {
-                    paymentId: payment_id,
-                    credits: payment.credits,
-                    amount: payment.amount,
-                    expiresAt: payment.expires_at
-                }
-            });
-
-        } catch (error) {
-            console.error('Verify payment error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Payment verification failed',
-                error: error.message
-            });
-        }
-    }
-
-    // 3. Add credits to user
     async addCreditsToUser(userId, credits, validityDays, paymentId) {
         const connection = await db.getConnection();
-        
+
         try {
             await connection.beginTransaction();
 
@@ -351,6 +229,175 @@ class PaymentController {
         }
     }
 
+    // 2. Verify Payment
+    // 2. Verify Payment
+    async verifyPayment(req, res) {
+        try {
+            const userId = req.user.id;
+            const { order_id, payment_id, signature, planType, credits } = req.body;
+
+            console.log('Verifying payment for user:', userId, req.body);
+
+            // Find the payment record
+            const [payments] = await db.execute(
+                'SELECT * FROM payments WHERE razorpay_order_id = ? AND user_id = ?',
+                [order_id, userId]
+            );
+
+            if (payments.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Payment record not found'
+                });
+            }
+
+            const payment = payments[0];
+
+            // Verify signature for real payments
+            const body = order_id + "|" + payment_id;
+            const expectedSignature = crypto
+                .createHmac('sha256', RAZORPAY_KEY_SECRET)
+                .update(body.toString())
+                .digest('hex');
+
+            const isSignatureValid = expectedSignature === signature;
+
+            console.log('Signature verification:', {
+                expected: expectedSignature.substring(0, 20) + '...',
+                received: signature.substring(0, 20) + '...',
+                isValid: isSignatureValid
+            });
+
+            if (!isSignatureValid) {
+                // Update payment status to failed
+                await db.execute(
+                    `UPDATE payments SET 
+                 status = 'failed',
+                 razorpay_payment_id = ?,
+                 razorpay_signature = ?,
+                 updated_at = NOW()
+                 WHERE id = ?`,
+                    [payment_id, signature, payment.id]
+                );
+
+                return res.status(400).json({
+                    success: false,
+                    message: 'Payment verification failed - Invalid signature'
+                });
+            }
+
+            // Update payment status to completed
+            await db.execute(
+                `UPDATE payments SET 
+             status = 'completed',
+             razorpay_payment_id = ?,
+             razorpay_signature = ?,
+             updated_at = NOW()
+             WHERE id = ?`,
+                [payment_id, signature, payment.id]
+            );
+
+            // ================ INLINE CREDIT ADDING CODE ================
+            const connection = await db.getConnection();
+
+            try {
+                await connection.beginTransaction();
+
+                console.log('Adding credits to user:', { userId, credits: payment.credits, validityDays: payment.validity_days });
+
+                // Get current user credits
+                const [users] = await connection.execute(
+                    'SELECT credits, credit_expiry FROM users WHERE id = ?',
+                    [userId]
+                );
+
+                let currentUser = users[0];
+                let newCredits = payment.credits;
+                let newExpiry = new Date();
+                newExpiry.setDate(newExpiry.getDate() + payment.validity_days);
+
+                // If user already has credits, add to existing
+                if (currentUser.credits > 0 && currentUser.credit_expiry && new Date(currentUser.credit_expiry) > new Date()) {
+                    newCredits = currentUser.credits + payment.credits;
+                    // Keep whichever expiry is later
+                    if (new Date(currentUser.credit_expiry) > newExpiry) {
+                        newExpiry = currentUser.credit_expiry;
+                    }
+                }
+
+                // Update user credits
+                await connection.execute(
+                    `UPDATE users SET 
+                 credits = ?,
+                 credit_expiry = ?,
+                 active_credits = ?,
+                 total_purchased_credits = total_purchased_credits + ?,
+                 updated_at = NOW()
+                 WHERE id = ?`,
+                    [newCredits, newExpiry, newCredits, payment.credits, userId]
+                );
+
+                // Create credit transaction record
+                await connection.execute(
+                    `INSERT INTO credit_transactions 
+                 (user_id, transaction_type, credits, balance_after, 
+                  payment_id, description, expires_at, created_at) 
+                 VALUES (?, 'purchase', ?, ?, ?, ?, ?, NOW())`,
+                    [
+                        userId,
+                        payment.credits,
+                        newCredits,
+                        payment.id,
+                        `Purchased ${payment.credits} credits via payment #${payment.id}`,
+                        newExpiry
+                    ]
+                );
+
+                // Update payment record status to completed
+                await connection.execute(
+                    'UPDATE payments SET status = "completed" WHERE id = ?',
+                    [payment.id]
+                );
+
+                await connection.commit();
+
+                console.log('Credits added successfully to user:', userId);
+
+            } catch (error) {
+                await connection.rollback();
+                console.error('Error adding credits:', error);
+                throw error;
+            } finally {
+                connection.release();
+            }
+            // ================ END INLINE CODE ================
+
+            console.log('Payment verified successfully for user:', userId);
+
+            res.status(200).json({
+                success: true,
+                message: 'Payment verified successfully',
+                data: {
+                    paymentId: payment_id,
+                    credits: payment.credits,
+                    amount: payment.amount,
+                    expiresAt: payment.expires_at
+                }
+            });
+
+        } catch (error) {
+            console.error('Verify payment error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Payment verification failed',
+                error: error.message
+            });
+        }
+    }
+
+    // 3. Add credits to user
+
+
     // 4. Get Payment History
     async getPaymentHistory(req, res) {
         try {
@@ -411,7 +458,7 @@ class PaymentController {
             }
 
             const connection = await db.getConnection();
-            
+
             try {
                 await connection.beginTransaction();
 
@@ -566,7 +613,7 @@ class PaymentController {
             // Check if credits are expired
             let validCredits = user.credits;
             let isExpired = false;
-            
+
             if (user.credit_expiry && new Date(user.credit_expiry) < new Date()) {
                 validCredits = 0;
                 isExpired = true;
@@ -578,7 +625,7 @@ class PaymentController {
                 const expiryDate = new Date(user.credit_expiry);
                 const now = new Date();
                 const daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-                
+
                 expiryInfo = {
                     date: expiryDate,
                     daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
@@ -748,7 +795,7 @@ class PaymentController {
 
     async handleRefundCreated(payment) {
         console.log('Refund created for payment:', payment.id);
-        
+
         // Handle refund logic here
         // You might want to deduct credits from user
     }
