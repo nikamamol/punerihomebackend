@@ -443,6 +443,8 @@ class PaymentController {
     }
 
     // 5. Use Credit for Property Contact
+    // 5. Use Credit for Property Contact
+    // 5. Use Credit for Property Contact
     async useCredit(req, res) {
         try {
             const userId = req.user.id;
@@ -450,10 +452,26 @@ class PaymentController {
 
             console.log('Using credit for property:', { userId, propertyId });
 
-            if (!propertyId) {
+            // Handle if propertyId comes as an object (nested)
+            let actualPropertyId = propertyId;
+            if (propertyId && typeof propertyId === 'object' && propertyId.propertyId) {
+                actualPropertyId = propertyId.propertyId;
+                console.log('Extracted propertyId from object:', actualPropertyId);
+            }
+
+            if (!actualPropertyId) {
                 return res.status(400).json({
                     success: false,
                     message: 'Property ID is required'
+                });
+            }
+
+            // Convert to integer if it's a string
+            const propertyIdInt = parseInt(actualPropertyId);
+            if (isNaN(propertyIdInt)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid Property ID format'
                 });
             }
 
@@ -465,9 +483,9 @@ class PaymentController {
                 // Check user has valid credits
                 const [users] = await connection.execute(
                     `SELECT credits, credit_expiry FROM users 
-                     WHERE id = ? AND credits > 0 
-                     AND (credit_expiry IS NULL OR credit_expiry > NOW()) 
-                     FOR UPDATE`,
+                 WHERE id = ? AND credits > 0 
+                 AND (credit_expiry IS NULL OR credit_expiry > NOW()) 
+                 FOR UPDATE`,
                     [userId]
                 );
 
@@ -493,31 +511,31 @@ class PaymentController {
                 // Deduct credit
                 await connection.execute(
                     `UPDATE users SET 
-                     credits = ?,
-                     total_used_credits = total_used_credits + 1,
-                     updated_at = NOW()
-                     WHERE id = ?`,
+                 credits = ?,
+                 total_used_credits = total_used_credits + 1,
+                 updated_at = NOW()
+                 WHERE id = ?`,
                     [newBalance, userId]
                 );
 
                 // Record transaction
                 const [transactionResult] = await connection.execute(
                     `INSERT INTO credit_transactions 
-                     (user_id, transaction_type, credits, balance_after, 
-                      property_id, description, created_at) 
-                     VALUES (?, 'used', -1, ?, ?, ?, NOW())`,
+                 (user_id, transaction_type, credits, balance_after, 
+                  property_id, description, created_at) 
+                 VALUES (?, 'used', -1, ?, ?, ?, NOW())`,
                     [
                         userId,
                         newBalance,
-                        propertyId,
-                        `Used 1 credit to view property #${propertyId} contact`
+                        propertyIdInt,
+                        `Used 1 credit to view property #${propertyIdInt} contact`
                     ]
                 );
 
-                // Get property contact details
+                // Get property contact details - UPDATED COLUMN NAMES
                 const [properties] = await connection.execute(
-                    'SELECT owner_name, owner_phone, owner_email, owner_whatsapp FROM properties WHERE id = ?',
-                    [propertyId]
+                    'SELECT contact_person_name, contact_person_phone, contact_person_email, contact_person_whatsapp FROM properties WHERE id = ?',
+                    [propertyIdInt]
                 );
 
                 if (properties.length === 0) {
@@ -530,10 +548,10 @@ class PaymentController {
 
                 const property = properties[0];
 
-                // Check if user has already viewed this property (optional)
+                // Check if user has already viewed this property
                 const [existingViews] = await connection.execute(
                     'SELECT id FROM credit_transactions WHERE user_id = ? AND property_id = ? AND transaction_type = "used"',
-                    [userId, propertyId]
+                    [userId, propertyIdInt]
                 );
 
                 await connection.commit();
@@ -542,10 +560,10 @@ class PaymentController {
                     success: true,
                     data: {
                         contactDetails: {
-                            name: property.owner_name,
-                            phone: property.owner_phone,
-                            email: property.owner_email,
-                            whatsapp: property.owner_whatsapp
+                            name: property.contact_person_name,
+                            phone: property.contact_person_phone,
+                            email: property.contact_person_email,
+                            whatsapp: property.contact_person_whatsapp
                         },
                         remainingCredits: newBalance,
                         firstTimeView: existingViews.length === 0,
@@ -558,6 +576,15 @@ class PaymentController {
             } catch (error) {
                 await connection.rollback();
                 console.error('Error in useCredit transaction:', error);
+
+                // More detailed error logging
+                console.error('Error details:', {
+                    code: error.code,
+                    errno: error.errno,
+                    sqlMessage: error.sqlMessage,
+                    sql: error.sql
+                });
+
                 throw error;
             } finally {
                 connection.release();
@@ -568,11 +595,11 @@ class PaymentController {
             res.status(500).json({
                 success: false,
                 message: 'Failed to use credit',
-                error: error.message
+                error: error.message,
+                sqlMessage: error.sqlMessage || null
             });
         }
     }
-
     // 6. Get Credit Balance
     async getCreditBalance(req, res) {
         try {
