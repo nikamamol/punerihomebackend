@@ -75,7 +75,7 @@ const authController = {
                     userData.budget = budget ? parseInt(budget) : null;
                     userData.move_in_date = moveInDate || null;
                     userData.is_verified = 0;
-                    userData.credits = 1;
+                    userData.credits = 0;
                     userData.total_properties_allowed = 0;
                     break;
 
