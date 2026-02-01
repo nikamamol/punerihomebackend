@@ -38,6 +38,8 @@ const authRoutes = require('./routes/authRoutes');
 const propertyRoutes = require('./routes/propertyRoutes');
 const tenantRoutes = require('./routes/propertyRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const supportRoutes = require('./routes/supportRoutes');
+const viewingRoutes = require('./routes/viewingRoutes');
 
 // Middleware
 app.use(cors({
@@ -71,7 +73,9 @@ app.use((req, res, next) => {
 // Property routes (with file upload)
 app.use('/api/properties', propertyRoutes);
 app.use('/api/tenant', tenantRoutes);
-app.use('/api/payments', paymentRoutes); 
+app.use('/api/payments', paymentRoutes);
+app.use('/api/support', supportRoutes);
+app.use('/api/viewing', viewingRoutes);
 
 // Static files (if you still need local uploads for something)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
